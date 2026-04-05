@@ -448,33 +448,15 @@ export default function ExpenseScanner() {
         return;
       }
 
-      // スキャン実行
+      // スキャン実行（host.exeがVercelに直接POSTしてOCR結果を返す）
       setScannerStatus("スキャン中... 原稿をセットしてお待ちください");
-      const result = await new Promise<{image?: string; mimeType?: string; error?: string}>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("タイムアウト")), 120000);
-        const chunks: string[] = [];
+      const result = await new Promise<{receipts?: Receipt[]; error?: string}>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("タイムアウト")), 150000);
         const handler = (e: MessageEvent) => {
           if (e.data?.type !== "SCANNER_RESPONSE") return;
           if (e.data.status === "discovering") { setScannerStatus("スキャナを検索中..."); return; }
           if (e.data.status === "scanning") { setScannerStatus("スキャン中... しばらくお待ちください"); return; }
-          if (e.data.error) {
-            clearTimeout(timer);
-            window.removeEventListener("message", handler);
-            resolve({ error: e.data.error });
-            return;
-          }
-          // チャンク受信
-          if (e.data.chunk !== undefined) {
-            chunks[e.data.chunkIndex] = e.data.chunk;
-            setScannerStatus(`受信中... ${e.data.chunkIndex + 1}/${e.data.totalChunks}`);
-            if (chunks.filter(Boolean).length === e.data.totalChunks) {
-              clearTimeout(timer);
-              window.removeEventListener("message", handler);
-              resolve({ image: chunks.join(""), mimeType: e.data.mimeType });
-            }
-            return;
-          }
-          // 旧形式（チャンクなし）
+          if (e.data.status === "processing") { setScannerStatus("AIが読み取り中..."); return; }
           clearTimeout(timer);
           window.removeEventListener("message", handler);
           resolve(e.data);
@@ -487,17 +469,26 @@ export default function ExpenseScanner() {
         setScannerError(result.error);
         return;
       }
-      if (!result.image) {
-        setScannerError("画像データが取得できませんでした");
+      if (!result.receipts?.length) {
+        setScannerError("レシートを検出できませんでした");
         return;
       }
 
-      // base64 → File に変換してOCR処理へ
-      const binary = atob(result.image);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const file = new File([bytes], `scan_${Date.now()}.jpg`, { type: result.mimeType || "image/jpeg" });
-      await processFile(file);
+      // OCR結果を直接セット（processFileを経由しない）
+      const newReceipts: Receipt[] = result.receipts.map((r) => ({
+        ...r,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        items: (r.items || []).map((item) => ({
+          ...item,
+          classification: "business" as Classification,
+          split_ratio: 50,
+        })),
+      }));
+      setReceipts(newReceipts);
+      const next = [...loadSaved(), ...newReceipts];
+      saveSessions(next);
+      setSaved(next);
+      if (session?.accessToken) saveToDrive(newReceipts);
 
     } catch (e: unknown) {
       setScannerError(e instanceof Error ? e.message : "スキャンに失敗しました");
