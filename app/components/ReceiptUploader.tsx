@@ -38,12 +38,51 @@ function ConfidenceBadge({ value }: { value: number }) {
   );
 }
 
+function downloadCSV(result: ReceiptData) {
+  const rows = [
+    ["店舗名", "日付", "勘定科目", "支払方法", "合計金額"],
+    [result.store_name, result.date, result.category, result.payment_method, result.total],
+    [],
+    ["品名", "数量", "単価", "金額", "税率(%)"],
+    ...result.items.map(item => [item.name, item.quantity, item.unit_price, item.amount, item.tax_rate]),
+    [],
+    ["小計", "", "", result.subtotal, ""],
+    ...(result.tax_8 > 0 ? [["消費税(8%)", "", "", result.tax_8, ""]] : []),
+    ...(result.tax_10 > 0 ? [["消費税(10%)", "", "", result.tax_10, ""]] : []),
+    ["合計", "", "", result.total, ""],
+  ];
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `receipt_${result.date.replace(/\//g, "-")}_${result.store_name}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const STORAGE_KEY = "receipt_scanner_history";
+
+function loadHistory(): ReceiptData[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch { return []; }
+}
+
+function saveToHistory(data: ReceiptData) {
+  const history = loadHistory();
+  history.unshift(data);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(0, 50)));
+}
+
 export default function ReceiptUploader() {
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<ReceiptData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [monthlyTotal, setMonthlyTotal] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback(async (file: File) => {
@@ -79,6 +118,15 @@ export default function ReceiptUploader() {
           setError(data.error || "解析に失敗しました");
         } else {
           setResult(data);
+          saveToHistory(data);
+          // 今月の合計を計算
+          const now = new Date();
+          const ym = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+          const history = loadHistory();
+          const total = history
+            .filter(r => r.date?.startsWith(ym))
+            .reduce((sum, r) => sum + (r.total || 0), 0);
+          setMonthlyTotal(total);
         }
       } catch {
         setError("通信エラーが発生しました");
@@ -249,6 +297,29 @@ export default function ReceiptUploader() {
                     {result.warnings.map((w, i) => (
                       <p key={i} className="text-yellow-300/80 text-sm">{w}</p>
                     ))}
+                  </div>
+                )}
+
+                {/* CSV ダウンロード */}
+                <button
+                  onClick={() => downloadCSV(result)}
+                  className="w-full py-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-400 text-sm font-medium transition-colors cursor-pointer"
+                >
+                  📥 CSVダウンロード（freee・確定申告用）
+                </button>
+
+                {/* 今月の経費合計 */}
+                {monthlyTotal !== null && (
+                  <div className="p-4 rounded-xl bg-gray-900 border border-gray-700">
+                    <div className="text-xs text-gray-400 font-mono mb-1">
+                      今月の経費合計（スキャン済み）
+                    </div>
+                    <div className="text-2xl font-bold text-amber-500 font-mono">
+                      ¥{monthlyTotal.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      ※ このデバイスでスキャンした分のみ集計
+                    </div>
                   </div>
                 )}
 
