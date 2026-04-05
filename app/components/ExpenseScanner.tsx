@@ -650,7 +650,7 @@ export default function ExpenseScanner() {
                     onClick={() => { setReceipts([]); setError(null); }}
                     className="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-xs hover:bg-gray-700"
                   >
-                    やり直す
+                    次をスキャン
                   </button>
                 </div>
               </div>
