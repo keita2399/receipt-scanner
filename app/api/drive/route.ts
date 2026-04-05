@@ -31,7 +31,7 @@ async function getOrCreateFolder(drive: ReturnType<typeof google.drive>, folderN
 
 // GET: 指定月のJSONを読み込む
 export async function GET(req: NextRequest) {
-  const token = await getToken({ req });
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
 
 // POST: 指定月のJSONを保存（上書き）
 export async function POST(req: NextRequest) {
-  const token = await getToken({ req });
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
