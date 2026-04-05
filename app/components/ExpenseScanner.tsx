@@ -316,6 +316,7 @@ export default function ExpenseScanner() {
   const [driveStatus, setDriveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
+  const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -398,14 +399,41 @@ export default function ExpenseScanner() {
   const scanFromScanner = useCallback(async () => {
     setScannerError(null);
     setScannerLoading(true);
+
+    const isRunning = async () => {
+      try {
+        const r = await fetch("http://localhost:8765/status", { signal: AbortSignal.timeout(1000) });
+        return r.ok;
+      } catch { return false; }
+    };
+
     try {
-      // まずプロキシの死活確認
-      const status = await fetch("http://localhost:8765/status", { signal: AbortSignal.timeout(2000) }).catch(() => null);
-      if (!status?.ok) {
-        setScannerError("スキャナプロキシが起動していません。scanner-proxy/start.bat を実行してください。");
-        return;
+      // プロキシ確認
+      setScannerStatus("接続確認中...");
+      if (!await isRunning()) {
+        // カスタムURIスキームで自動起動
+        setScannerStatus("プロキシを起動中... しばらくお待ちください");
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.src = "scanner-proxy://start";
+        document.body.appendChild(iframe);
+        setTimeout(() => document.body.removeChild(iframe), 2000);
+
+        // 最大15秒ポーリング
+        let ready = false;
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          setScannerStatus(`プロキシを起動中... (${i + 1}秒)`);
+          if (await isRunning()) { ready = true; break; }
+        }
+        if (!ready) {
+          setScannerError("自動起動に失敗しました。初回は scanner-proxy/setup.bat を一度実行してください。");
+          return;
+        }
       }
+
       // スキャン実行
+      setScannerStatus("スキャン中... 原稿をセットしてお待ちください");
       const res = await fetch("http://localhost:8765/scan", { signal: AbortSignal.timeout(40000) });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "スキャンに失敗しました" }));
@@ -417,12 +445,13 @@ export default function ExpenseScanner() {
       await processFile(file);
     } catch (e: unknown) {
       if (e instanceof Error && e.name === "TimeoutError") {
-        setScannerError("タイムアウト: スキャナに原稿がセットされているか確認してください。");
+        setScannerError("タイムアウト: 原稿がセットされているか確認してください。");
       } else {
-        setScannerError("スキャナプロキシに接続できません。start.bat を起動してください。");
+        setScannerError("スキャナに接続できません。setup.bat を実行してください。");
       }
     } finally {
       setScannerLoading(false);
+      setScannerStatus(null);
     }
   }, [processFile]);
 
@@ -576,9 +605,12 @@ export default function ExpenseScanner() {
                   disabled={scannerLoading}
                   className="py-3 rounded-xl border border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {scannerLoading ? "🖨️ スキャン中..." : "🖨️ スキャナで読み込む"}
+                  🖨️ スキャナで読み込む
                 </button>
               </div>
+              {scannerStatus && (
+                <p className="mt-2 text-xs text-blue-400 text-center animate-pulse">{scannerStatus}</p>
+              )}
               {scannerError && (
                 <p className="mt-2 text-xs text-red-400 text-center">{scannerError}</p>
               )}
