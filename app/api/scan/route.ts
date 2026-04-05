@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const GEMINI_STREAM_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent";
 
 const SYSTEM_PROMPT = `あなたはレシート読み取りの専門AIです。画像またはPDFに含まれる全てのレシートを個別に識別して読み取り、以下のJSON配列形式で出力してください。
 
@@ -64,17 +64,17 @@ const SYSTEM_PROMPT = `あなたはレシート読み取りの専門AIです。�
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "GEMINI_API_KEY not configured" }, { status: 500 });
+    return new Response(JSON.stringify({ error: "GEMINI_API_KEY not configured" }), { status: 500 });
   }
 
   try {
     const { image, mimeType } = await req.json();
 
     if (!image || !mimeType) {
-      return NextResponse.json({ error: "image and mimeType are required" }, { status: 400 });
+      return new Response(JSON.stringify({ error: "image and mimeType are required" }), { status: 400 });
     }
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    const geminiRes = await fetch(`${GEMINI_STREAM_URL}?key=${apiKey}&alt=sse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -82,12 +82,7 @@ export async function POST(req: NextRequest) {
           {
             parts: [
               { text: SYSTEM_PROMPT },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: image,
-                },
-              },
+              { inline_data: { mime_type: mimeType, data: image } },
             ],
           },
         ],
@@ -98,28 +93,57 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
+    if (!geminiRes.ok || !geminiRes.body) {
+      const errorText = await geminiRes.text();
       console.error("Gemini API error:", errorText);
-      return NextResponse.json({ error: "AI API error", detail: errorText }, { status: 502 });
+      return new Response(JSON.stringify({ error: "AI API error", detail: errorText }), { status: 502 });
     }
 
-    const result = await response.json();
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    // GeminiのSSEストリームを読み取り、テキストを結合してクライアントに返す
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = geminiRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
 
-    if (!text) {
-      return NextResponse.json({ error: "No response from AI" }, { status: 502 });
-    }
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-    const receipts = JSON.parse(text);
-    const receiptsArray = Array.isArray(receipts) ? receipts : [receipts];
+            const chunk = decoder.decode(value, { stream: true });
+            // SSE形式: "data: {...}\n\n" からJSONを抽出
+            const lines = chunk.split("\n");
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr || jsonStr === "[DONE]") continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) accumulated += text;
+              } catch { /* 不完全なチャンクはスキップ */ }
+            }
+          }
 
-    return NextResponse.json({ receipts: receiptsArray });
+          // 結合したテキストをJSONとしてパース
+          const receipts = JSON.parse(accumulated);
+          const receiptsArray = Array.isArray(receipts) ? receipts : [receipts];
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({ receipts: receiptsArray })));
+        } catch (e) {
+          console.error("Stream parse error:", e, "accumulated:", accumulated.slice(0, 200));
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({ error: "Failed to parse AI response" })));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Scan error:", error);
-    return NextResponse.json(
-      { error: "Failed to process receipt", detail: String(error) },
-      { status: 500 }
-    );
+    return new Response(JSON.stringify({ error: "Failed to process receipt", detail: String(error) }), { status: 500 });
   }
 }
