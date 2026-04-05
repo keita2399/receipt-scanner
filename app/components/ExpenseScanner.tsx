@@ -3,6 +3,71 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 
+// --- カメラキャプチャモーダル ---
+function CameraModal({ onCapture, onClose }: {
+  onCapture: (file: File) => void;
+  onClose: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 2560 }, height: { ideal: 1920 } } })
+      .then(s => {
+        setStream(s);
+        if (videoRef.current) videoRef.current.srcObject = s;
+      })
+      .catch(() => setError("カメラにアクセスできません。ブラウザの設定を確認してください。"));
+    return () => { stream?.getTracks().forEach(t => t.stop()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const capture = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], `receipt_${Date.now()}.jpg`, { type: "image/jpeg" });
+      stream?.getTracks().forEach(t => t.stop());
+      onCapture(file);
+      onClose();
+    }, "image/jpeg", 0.92);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-lg">
+        <div className="flex justify-between items-center mb-3">
+          <p className="text-white font-medium">レシートをカメラに向けてください</p>
+          <button onClick={() => { stream?.getTracks().forEach(t => t.stop()); onClose(); }}
+            className="text-gray-400 hover:text-white text-2xl leading-none">✕</button>
+        </div>
+        {error ? (
+          <div className="p-6 rounded-xl bg-red-500/10 border border-red-500/30 text-center">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        ) : (
+          <>
+            <video ref={videoRef} autoPlay playsInline
+              className="w-full rounded-xl bg-gray-900 aspect-[4/3] object-cover" />
+            <canvas ref={canvasRef} className="hidden" />
+            <button onClick={capture}
+              className="mt-4 w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-lg transition-colors">
+              📸 撮影する
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- 型定義 ---
 type Classification = "business" | "personal" | "split";
 
@@ -249,6 +314,7 @@ export default function ExpenseScanner() {
   const [dragOver, setDragOver] = useState(false);
   const [activeTab, setActiveTab] = useState<"scan" | "history">("scan");
   const [driveStatus, setDriveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [cameraOpen, setCameraOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Drive保存
@@ -376,6 +442,13 @@ export default function ExpenseScanner() {
   }, {});
 
   return (
+    <>
+    {cameraOpen && (
+      <CameraModal
+        onCapture={file => { setCameraOpen(false); processFile(file); }}
+        onClose={() => setCameraOpen(false)}
+      />
+    )}
     <div className="max-w-4xl mx-auto px-4 py-10">
       {/* ヘッダー */}
       <div className="text-center mb-8">
@@ -437,26 +510,34 @@ export default function ExpenseScanner() {
         <>
           {/* アップロードエリア */}
           {receipts.length === 0 && !loading && (
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => fileRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${
-                dragOver ? "border-amber-500 bg-amber-500/10" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50"
-              }`}
-            >
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*,application/pdf"
-                className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}
-              />
-              <div className="text-4xl mb-4">🗂️</div>
-              <p className="text-gray-300 font-medium mb-1">レシートをドロップ or クリックして選択</p>
-              <p className="text-gray-500 text-xs">PNG / JPEG / PDF（複数レシートOK・複数ページPDFもOK）最大15MB</p>
-            </div>
+            <>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
+                  dragOver ? "border-amber-500 bg-amber-500/10" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50"
+                }`}
+              >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}
+                />
+                <div className="text-4xl mb-4">🗂️</div>
+                <p className="text-gray-300 font-medium mb-1">レシートをドロップ or クリックして選択</p>
+                <p className="text-gray-500 text-xs">PNG / JPEG / PDF（複数レシートOK・複数ページPDFもOK）最大15MB</p>
+              </div>
+              <button
+                onClick={() => setCameraOpen(true)}
+                className="mt-3 w-full py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2"
+              >
+                📷 カメラで撮影する
+              </button>
+            </>
           )}
 
           {/* ローディング */}
@@ -574,5 +655,6 @@ export default function ExpenseScanner() {
         </>
       )}
     </div>
+    </>
   );
 }
