@@ -553,13 +553,15 @@ export default function ExpenseScanner() {
       </div>
 
       {/* タブ */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex border-b border-gray-700 mb-6">
         {(["scan", "history"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === tab ? "bg-amber-500 text-black" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              activeTab === tab
+                ? "border-amber-500 text-amber-400"
+                : "border-transparent text-gray-500 hover:text-gray-300"
             }`}
           >
             {tab === "scan" ? "📸 スキャン" : `📋 履歴 (${saved.length}件)`}
