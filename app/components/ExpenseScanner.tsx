@@ -318,7 +318,7 @@ export default function ExpenseScanner() {
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null);
+  const [extensionInstalled, setExtensionInstalled] = useState<boolean>(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -352,7 +352,7 @@ export default function ExpenseScanner() {
     };
     window.addEventListener("message", handler);
     window.postMessage({ type: "SCANNER_CHECK" }, "*");
-    const timer = setTimeout(() => setExtensionInstalled((v) => v ?? false), 1500);
+    const timer = setTimeout(() => setExtensionInstalled((v) => v || false), 1500);
     return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
   }, []);
 
@@ -633,14 +633,14 @@ export default function ExpenseScanner() {
                 <button
                   onClick={scanFromScanner}
                   disabled={scannerLoading}
-                  title={extensionInstalled === false ? "Chrome拡張機能をインストールしてください" : ""}
+                  title={!extensionInstalled ? "Chrome拡張機能をインストールしてください" : ""}
                   className={`py-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                    extensionInstalled === false
+                    !extensionInstalled
                       ? "border-gray-800 text-gray-600 cursor-not-allowed"
-                      : "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400"
+                      : "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 cursor-pointer"
                   }`}
                 >
-                  🖨️ {extensionInstalled === false ? "拡張機能が必要です" : "スキャナで読み込む"}
+                  🖨️ {!extensionInstalled ? "拡張機能が必要です" : "スキャナで読み込む"}
                 </button>
               </div>
               {scannerStatus && (
