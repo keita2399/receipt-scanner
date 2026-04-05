@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { GoogleAnalytics } from "./components/GoogleAnalytics";
+import SessionProvider from "./components/SessionProvider";
 
 export const metadata: Metadata = {
-  title: "レシートスキャナー — AI OCR + 自動仕訳",
-  description: "レシートを撮影するだけで、AIが内容を読み取り、勘定科目を自動判定。確定申告の経費入力を効率化。",
+  title: "経費仕分けツール — AI OCR + Google Drive",
+  description: "レシートをスキャンして仕事/家庭を仕分け。確定申告用CSV出力。Google Driveに自動保存。",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -12,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ja">
       <body className="bg-gray-950 text-gray-100 min-h-screen font-sans">
         <GoogleAnalytics />
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
