@@ -318,6 +318,7 @@ export default function ExpenseScanner() {
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const [extensionInstalled, setExtensionInstalled] = useState<boolean>(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -345,8 +346,14 @@ export default function ExpenseScanner() {
     }
   }, [session]);
 
+  // ハイドレーション完了後にのみクライアント固有の処理を実行
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Chrome拡張の存在確認（マウント後にSCANNER_CHECKを送って応答を待つ）
   useEffect(() => {
+    if (!mounted) return;
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "SCANNER_EXTENSION_READY") setExtensionInstalled(true);
     };
@@ -354,7 +361,7 @@ export default function ExpenseScanner() {
     window.postMessage({ type: "SCANNER_CHECK" }, "*");
     const timer = setTimeout(() => setExtensionInstalled((v) => v || false), 1500);
     return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
-  }, []);
+  }, [mounted]);
 
   // Drive読み込み（ログイン時）
   useEffect(() => {
