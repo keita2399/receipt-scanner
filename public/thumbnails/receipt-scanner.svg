@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#111" rx="8"/>
+  <text x="320" y="100" text-anchor="middle" font-size="64">📸</text>
+  <text x="320" y="170" text-anchor="middle" font-family="system-ui" font-size="36" font-weight="bold" fill="#f59e0b">レシートスキャナー</text>
+  <text x="320" y="220" text-anchor="middle" font-family="monospace" font-size="18" fill="#9ca3af">AI OCR + 自動仕訳 + 信頼度スコア</text>
+  <text x="320" y="270" text-anchor="middle" font-family="monospace" font-size="14" fill="#6b7280">撮影 → 読み取り → 勘定科目判定</text>
+</svg>
