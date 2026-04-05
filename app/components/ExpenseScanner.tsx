@@ -58,7 +58,7 @@ function CameraModal({ onCapture, onClose }: {
               className="w-full rounded-xl bg-gray-900 aspect-[4/3] object-cover" />
             <canvas ref={canvasRef} className="hidden" />
             <button onClick={capture}
-              className="mt-4 w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-lg transition-colors">
+              className="mt-4 w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-lg transition-colors cursor-pointer">
               📸 撮影する
             </button>
           </>
@@ -160,7 +160,7 @@ function ItemRow({ item, onChange }: {
           <button
             key={c}
             onClick={() => onChange({ ...item, classification: c })}
-            className={`flex-1 py-1 rounded text-[10px] font-bold transition-colors ${
+            className={`flex-1 py-1 rounded text-[10px] font-bold transition-colors cursor-pointer ${
               item.classification === c
                 ? c === "business" ? "bg-blue-600 text-white"
                   : c === "personal" ? "bg-gray-600 text-white"
@@ -191,7 +191,7 @@ function ItemRow({ item, onChange }: {
         <select
           value={item.category}
           onChange={e => onChange({ ...item, category: e.target.value })}
-          className="w-full bg-gray-800 text-gray-300 rounded px-1 py-0.5 text-[10px]"
+          className="w-full bg-gray-800 text-gray-300 rounded px-1 py-0.5 text-[10px] cursor-pointer"
         >
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
@@ -256,7 +256,7 @@ function ReceiptCard({ receipt, onChange }: {
               <button
                 key={c}
                 onClick={() => setAll(c)}
-                className="text-[10px] px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+                className="text-[10px] px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 cursor-pointer"
               >
                 全て{c === "business" ? "仕事" : c === "personal" ? "家庭" : "按分"}
               </button>
@@ -345,14 +345,14 @@ export default function ExpenseScanner() {
     }
   }, [session]);
 
-  // Chrome拡張の存在確認
+  // Chrome拡張の存在確認（マウント後にSCANNER_CHECKを送って応答を待つ）
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "SCANNER_EXTENSION_READY") setExtensionInstalled(true);
     };
     window.addEventListener("message", handler);
-    // 1秒待って応答なければ未インストール
-    const timer = setTimeout(() => setExtensionInstalled((v) => v ?? false), 1000);
+    window.postMessage({ type: "SCANNER_CHECK" }, "*");
+    const timer = setTimeout(() => setExtensionInstalled((v) => v ?? false), 1500);
     return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
   }, []);
 
@@ -559,7 +559,7 @@ export default function ExpenseScanner() {
             {driveStatus === "error" && <span className="text-xs text-red-400">⚠ Drive保存失敗</span>}
             <button
               onClick={() => signOut()}
-              className="text-xs text-gray-500 hover:text-gray-300"
+              className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer"
             >
               ログアウト
             </button>
@@ -586,7 +586,7 @@ export default function ExpenseScanner() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px cursor-pointer ${
               activeTab === tab
                 ? "border-amber-500 text-amber-400"
                 : "border-transparent text-gray-500 hover:text-gray-300"
@@ -678,7 +678,7 @@ export default function ExpenseScanner() {
                   {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
                   <button
                     onClick={() => { setReceipts([]); setError(null); }}
-                    className="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-xs hover:bg-gray-700"
+                    className="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-xs hover:bg-gray-700 cursor-pointer"
                   >
                     次をスキャン
                   </button>
@@ -703,7 +703,7 @@ export default function ExpenseScanner() {
 
               <button
                 onClick={() => downloadCSV(receipts)}
-                className="w-full mt-3 py-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 text-sm font-medium transition-colors"
+                className="w-full mt-3 py-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 text-sm font-medium transition-colors cursor-pointer"
               >
                 📥 CSVダウンロード（確定申告用）
               </button>
@@ -736,13 +736,13 @@ export default function ExpenseScanner() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => downloadCSV(saved)}
-                    className="px-3 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs hover:bg-blue-500/30"
+                    className="px-3 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs hover:bg-blue-500/30 cursor-pointer"
                   >
                     📥 全件CSV
                   </button>
                   <button
                     onClick={clearHistory}
-                    className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs hover:bg-red-500/20"
+                    className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs hover:bg-red-500/20 cursor-pointer"
                   >
                     🗑 全削除
                   </button>
