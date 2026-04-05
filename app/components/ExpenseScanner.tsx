@@ -318,6 +318,7 @@ export default function ExpenseScanner() {
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -343,6 +344,17 @@ export default function ExpenseScanner() {
       setDriveStatus("error");
     }
   }, [session]);
+
+  // Chrome拡張の存在確認
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "SCANNER_EXTENSION_READY") setExtensionInstalled(true);
+    };
+    window.addEventListener("message", handler);
+    // 1秒待って応答なければ未インストール
+    const timer = setTimeout(() => setExtensionInstalled((v) => v ?? false), 1000);
+    return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
+  }, []);
 
   // Drive読み込み（ログイン時）
   useEffect(() => {
@@ -402,59 +414,72 @@ export default function ExpenseScanner() {
     reader.readAsDataURL(file);
   }, [session, saveToDrive]);
 
+  // Chrome拡張経由でスキャン
   const scanFromScanner = useCallback(async () => {
     setScannerError(null);
     setScannerLoading(true);
 
-    const isRunning = async () => {
-      try {
-        const r = await fetch("http://localhost:8765/status", { signal: AbortSignal.timeout(1000) });
-        return r.ok;
-      } catch { return false; }
-    };
-
     try {
-      // プロキシ確認
-      setScannerStatus("接続確認中...");
-      if (!await isRunning()) {
-        // カスタムURIスキームで自動起動
-        setScannerStatus("プロキシを起動中... しばらくお待ちください");
-        const iframe = document.createElement("iframe");
-        iframe.style.display = "none";
-        iframe.src = "scanner-proxy://start";
-        document.body.appendChild(iframe);
-        setTimeout(() => document.body.removeChild(iframe), 2000);
+      // 拡張機能の存在確認
+      setScannerStatus("スキャナを検索中...");
+      const extensionReady = await new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => resolve(false), 1500);
+        const handler = (e: MessageEvent) => {
+          if (e.data?.type === "SCANNER_EXTENSION_READY") {
+            clearTimeout(timer);
+            window.removeEventListener("message", handler);
+            resolve(true);
+          }
+        };
+        window.addEventListener("message", handler);
+        window.postMessage({ type: "SCANNER_CHECK" }, "*");
+      });
 
-        // 最大15秒ポーリング
-        let ready = false;
-        for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          setScannerStatus(`プロキシを起動中... (${i + 1}秒)`);
-          if (await isRunning()) { ready = true; break; }
-        }
-        if (!ready) {
-          setScannerError("自動起動に失敗しました。初回は scanner-proxy/setup.bat を一度実行してください。");
-          return;
-        }
+      if (!extensionReady) {
+        setScannerError("Chrome拡張機能がインストールされていません。拡張機能をインストールしてください。");
+        return;
       }
 
       // スキャン実行
       setScannerStatus("スキャン中... 原稿をセットしてお待ちください");
-      const res = await fetch("http://localhost:8765/scan", { signal: AbortSignal.timeout(40000) });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "スキャンに失敗しました" }));
-        setScannerError(err.error || "スキャンに失敗しました");
+      const result = await new Promise<{image?: string; mimeType?: string; error?: string; status?: string}>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("タイムアウト")), 65000);
+        const handler = (e: MessageEvent) => {
+          if (e.data?.type !== "SCANNER_RESPONSE") return;
+          if (e.data.status === "discovering") {
+            setScannerStatus("スキャナを検索中...");
+            return;
+          }
+          if (e.data.status === "scanning") {
+            setScannerStatus("スキャン中... しばらくお待ちください");
+            return;
+          }
+          clearTimeout(timer);
+          window.removeEventListener("message", handler);
+          resolve(e.data);
+        };
+        window.addEventListener("message", handler);
+        window.postMessage({ type: "SCANNER_REQUEST", action: "scan" }, "*");
+      });
+
+      if (result.error) {
+        setScannerError(result.error);
         return;
       }
-      const blob = await res.blob();
-      const file = new File([blob], `scan_${Date.now()}.jpg`, { type: "image/jpeg" });
-      await processFile(file);
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name === "TimeoutError") {
-        setScannerError("タイムアウト: 原稿がセットされているか確認してください。");
-      } else {
-        setScannerError("スキャナに接続できません。setup.bat を実行してください。");
+      if (!result.image) {
+        setScannerError("画像データが取得できませんでした");
+        return;
       }
+
+      // base64 → File に変換してOCR処理へ
+      const binary = atob(result.image);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const file = new File([bytes], `scan_${Date.now()}.jpg`, { type: result.mimeType || "image/jpeg" });
+      await processFile(file);
+
+    } catch (e: unknown) {
+      setScannerError(e instanceof Error ? e.message : "スキャンに失敗しました");
     } finally {
       setScannerLoading(false);
       setScannerStatus(null);
@@ -608,9 +633,14 @@ export default function ExpenseScanner() {
                 <button
                   onClick={scanFromScanner}
                   disabled={scannerLoading}
-                  className="py-3 rounded-xl border border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={extensionInstalled === false ? "Chrome拡張機能をインストールしてください" : ""}
+                  className={`py-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    extensionInstalled === false
+                      ? "border-gray-800 text-gray-600 cursor-not-allowed"
+                      : "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400"
+                  }`}
                 >
-                  🖨️ スキャナで読み込む
+                  🖨️ {extensionInstalled === false ? "拡張機能が必要です" : "スキャナで読み込む"}
                 </button>
               </div>
               {scannerStatus && (
