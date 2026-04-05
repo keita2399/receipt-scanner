@@ -618,10 +618,12 @@ export default function ExpenseScanner() {
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
-                  dragOver ? "border-amber-500 bg-amber-500/10" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50"
+                onDrop={scannerLoading ? undefined : handleDrop}
+                onClick={scannerLoading ? undefined : () => fileRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${
+                  scannerLoading
+                    ? "border-gray-800 opacity-40 cursor-not-allowed"
+                    : dragOver ? "border-amber-500 bg-amber-500/10 cursor-pointer" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 cursor-pointer"
                 }`}
               >
                 <input
@@ -629,6 +631,7 @@ export default function ExpenseScanner() {
                   type="file"
                   accept="image/*,application/pdf"
                   className="hidden"
+                  disabled={scannerLoading}
                   onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}
                 />
                 <div className="text-4xl mb-4">🗂️</div>
@@ -638,7 +641,8 @@ export default function ExpenseScanner() {
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setCameraOpen(true)}
-                  className="py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2"
+                  disabled={scannerLoading}
+                  className="py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   📷 カメラで撮影
                 </button>
