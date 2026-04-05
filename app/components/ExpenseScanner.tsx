@@ -308,7 +308,7 @@ function ReceiptCard({ receipt, onChange }: {
 export default function ExpenseScanner() {
   const { data: session } = useSession();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [saved, setSaved] = useState<Receipt[]>(() => loadSaved());
+  const [saved, setSaved] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -349,6 +349,7 @@ export default function ExpenseScanner() {
   // ハイドレーション完了後にのみクライアント固有の処理を実行
   useEffect(() => {
     setMounted(true);
+    setSaved(loadSaved());
   }, []);
 
   // Chrome拡張の存在確認（マウント後にSCANNER_CHECKを送って応答を待つ）
