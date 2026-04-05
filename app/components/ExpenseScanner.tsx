@@ -315,6 +315,8 @@ export default function ExpenseScanner() {
   const [activeTab, setActiveTab] = useState<"scan" | "history">("scan");
   const [driveStatus, setDriveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [scannerLoading, setScannerLoading] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Drive保存
@@ -392,6 +394,37 @@ export default function ExpenseScanner() {
     };
     reader.readAsDataURL(file);
   }, []);
+
+  const scanFromScanner = useCallback(async () => {
+    setScannerError(null);
+    setScannerLoading(true);
+    try {
+      // まずプロキシの死活確認
+      const status = await fetch("http://localhost:8765/status", { signal: AbortSignal.timeout(2000) }).catch(() => null);
+      if (!status?.ok) {
+        setScannerError("スキャナプロキシが起動していません。scanner-proxy/start.bat を実行してください。");
+        return;
+      }
+      // スキャン実行
+      const res = await fetch("http://localhost:8765/scan", { signal: AbortSignal.timeout(40000) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "スキャンに失敗しました" }));
+        setScannerError(err.error || "スキャンに失敗しました");
+        return;
+      }
+      const blob = await res.blob();
+      const file = new File([blob], `scan_${Date.now()}.jpg`, { type: "image/jpeg" });
+      await processFile(file);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "TimeoutError") {
+        setScannerError("タイムアウト: スキャナに原稿がセットされているか確認してください。");
+      } else {
+        setScannerError("スキャナプロキシに接続できません。start.bat を起動してください。");
+      }
+    } finally {
+      setScannerLoading(false);
+    }
+  }, [processFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -531,12 +564,24 @@ export default function ExpenseScanner() {
                 <p className="text-gray-300 font-medium mb-1">レシートをドロップ or クリックして選択</p>
                 <p className="text-gray-500 text-xs">PNG / JPEG / PDF（複数レシートOK・複数ページPDFもOK）最大15MB</p>
               </div>
-              <button
-                onClick={() => setCameraOpen(true)}
-                className="mt-3 w-full py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2"
-              >
-                📷 カメラで撮影する
-              </button>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setCameraOpen(true)}
+                  className="py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2"
+                >
+                  📷 カメラで撮影
+                </button>
+                <button
+                  onClick={scanFromScanner}
+                  disabled={scannerLoading}
+                  className="py-3 rounded-xl border border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {scannerLoading ? "🖨️ スキャン中..." : "🖨️ スキャナで読み込む"}
+                </button>
+              </div>
+              {scannerError && (
+                <p className="mt-2 text-xs text-red-400 text-center">{scannerError}</p>
+              )}
             </>
           )}
 
