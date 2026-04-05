@@ -450,18 +450,31 @@ export default function ExpenseScanner() {
 
       // スキャン実行
       setScannerStatus("スキャン中... 原稿をセットしてお待ちください");
-      const result = await new Promise<{image?: string; mimeType?: string; error?: string; status?: string}>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("タイムアウト")), 65000);
+      const result = await new Promise<{image?: string; mimeType?: string; error?: string}>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("タイムアウト")), 120000);
+        const chunks: string[] = [];
         const handler = (e: MessageEvent) => {
           if (e.data?.type !== "SCANNER_RESPONSE") return;
-          if (e.data.status === "discovering") {
-            setScannerStatus("スキャナを検索中...");
+          if (e.data.status === "discovering") { setScannerStatus("スキャナを検索中..."); return; }
+          if (e.data.status === "scanning") { setScannerStatus("スキャン中... しばらくお待ちください"); return; }
+          if (e.data.error) {
+            clearTimeout(timer);
+            window.removeEventListener("message", handler);
+            resolve({ error: e.data.error });
             return;
           }
-          if (e.data.status === "scanning") {
-            setScannerStatus("スキャン中... しばらくお待ちください");
+          // チャンク受信
+          if (e.data.chunk !== undefined) {
+            chunks[e.data.chunkIndex] = e.data.chunk;
+            setScannerStatus(`受信中... ${e.data.chunkIndex + 1}/${e.data.totalChunks}`);
+            if (chunks.filter(Boolean).length === e.data.totalChunks) {
+              clearTimeout(timer);
+              window.removeEventListener("message", handler);
+              resolve({ image: chunks.join(""), mimeType: e.data.mimeType });
+            }
             return;
           }
+          // 旧形式（チャンクなし）
           clearTimeout(timer);
           window.removeEventListener("message", handler);
           resolve(e.data);
@@ -661,11 +674,15 @@ export default function ExpenseScanner() {
           )}
 
           {/* ローディング */}
-          {loading && (
+          {(loading || scannerLoading) && (
             <div className="text-center py-20">
               <div className="animate-spin text-5xl mb-4">⚙️</div>
-              <p className="text-gray-400">AIがレシートを読み取り中...</p>
-              <p className="text-gray-600 text-xs mt-2">複数枚の場合は少し時間がかかります</p>
+              <p className="text-gray-400">
+                {scannerLoading ? (scannerStatus || "スキャン中...") : "AIがレシートを読み取り中..."}
+              </p>
+              <p className="text-gray-600 text-xs mt-2">
+                {scannerLoading ? "原稿をセットしてお待ちください" : "複数枚の場合は少し時間がかかります"}
+              </p>
             </div>
           )}
 
