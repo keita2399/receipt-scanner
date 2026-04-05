@@ -694,9 +694,9 @@ export default function ExpenseScanner() {
                   {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
                   <button
                     onClick={() => { setReceipts([]); setError(null); }}
-                    className="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-xs hover:bg-gray-700 cursor-pointer"
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm transition-colors cursor-pointer"
                   >
-                    次をスキャン
+                    📷 次をスキャン
                   </button>
                 </div>
               </div>
