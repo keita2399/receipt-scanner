@@ -319,6 +319,7 @@ export default function ExpenseScanner() {
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Drive保存
   const saveToDrive = useCallback(async (receiptsToSave: Receipt[]) => {
@@ -387,6 +388,11 @@ export default function ExpenseScanner() {
           })),
         }));
         setReceipts(newReceipts);
+        // スキャン完了と同時に自動保存
+        const next = [...loadSaved(), ...newReceipts];
+        saveSessions(next);
+        setSaved(next);
+        if (session?.accessToken) saveToDrive(newReceipts);
       } catch {
         setError("通信エラーが発生しました");
       } finally {
@@ -394,7 +400,7 @@ export default function ExpenseScanner() {
       }
     };
     reader.readAsDataURL(file);
-  }, []);
+  }, [session, saveToDrive]);
 
   const scanFromScanner = useCallback(async () => {
     setScannerError(null);
@@ -466,15 +472,14 @@ export default function ExpenseScanner() {
     const next = [...receipts];
     next[idx] = updated;
     setReceipts(next);
-  };
-
-  const saveAll = () => {
-    const next = [...saved, ...receipts];
-    saveSessions(next);
-    setSaved(next);
-    setReceipts([]);
-    setActiveTab("history");
-    if (session?.accessToken) saveToDrive(receipts);
+    // 仕分け変更後1秒でDrive自動保存
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      const merged = [...saved.filter(s => !next.find(n => n.id === s.id)), ...next];
+      saveSessions(merged);
+      setSaved(merged);
+      if (session?.accessToken) saveToDrive(next);
+    }, 1000);
   };
 
   const downloadCSV = (target: Receipt[]) => {
@@ -526,8 +531,6 @@ export default function ExpenseScanner() {
         {session ? (
           <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-900 border border-gray-700">
             <span className="text-xs text-gray-400">{session.user?.email}</span>
-            {driveStatus === "saving" && <span className="text-xs text-amber-400">⏳ Drive保存中...</span>}
-            {driveStatus === "saved" && <span className="text-xs text-green-400">✓ Drive保存済み</span>}
             {driveStatus === "error" && <span className="text-xs text-red-400">⚠ Drive保存失敗</span>}
             <button
               onClick={() => signOut()}
@@ -640,18 +643,14 @@ export default function ExpenseScanner() {
             <>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-gray-400 text-sm">{receipts.length}件のレシートを検出</span>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-3">
+                  {driveStatus === "saving" && <span className="text-xs text-amber-400 animate-pulse">⏳ 保存中...</span>}
+                  {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
                   <button
                     onClick={() => { setReceipts([]); setError(null); }}
                     className="px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-xs hover:bg-gray-700"
                   >
                     やり直す
-                  </button>
-                  <button
-                    onClick={saveAll}
-                    className="px-4 py-1.5 rounded-lg bg-amber-500 text-black font-bold text-xs hover:bg-amber-400"
-                  >
-                    💾 保存する
                   </button>
                 </div>
               </div>
