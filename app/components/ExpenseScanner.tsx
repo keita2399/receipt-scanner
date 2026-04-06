@@ -300,6 +300,54 @@ function ReceiptCard({ receipt, onChange }: {
   );
 }
 
+// --- 重複確認モーダル ---
+function DuplicateModal({ duplicates, imageUrl, onOk, onCancel }: {
+  duplicates: Receipt[];
+  imageUrl: string | null;
+  onOk: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-700">
+          <p className="text-white font-bold">重複レシートを検出</p>
+          <p className="text-gray-400 text-xs mt-1">以下のレシートは既に保存されています。追加しますか？</p>
+        </div>
+        <div className="px-5 py-4 space-y-3 max-h-96 overflow-y-auto">
+          {duplicates.map((r, i) => (
+            <div key={i} className="flex gap-3 items-start">
+              {imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imageUrl} alt="レシート" className="w-20 h-24 object-cover rounded border border-gray-700 flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <p className="text-gray-200 text-sm font-bold">{r.store_name || "不明"}</p>
+                <p className="text-gray-500 text-xs">{r.date}</p>
+                <p className="text-amber-400 text-sm font-mono mt-1">¥{r.total?.toLocaleString()}</p>
+                <div className="mt-1 space-y-0.5">
+                  {r.items.slice(0, 3).map((item, j) => (
+                    <p key={j} className="text-gray-500 text-[10px] truncate">{item.name} ¥{item.amount.toLocaleString()}</p>
+                  ))}
+                  {r.items.length > 3 && <p className="text-gray-600 text-[10px]">他{r.items.length - 3}件...</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-gray-700">
+          <button onClick={onCancel} className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm cursor-pointer">
+            キャンセル
+          </button>
+          <button onClick={onOk} className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm cursor-pointer">
+            追加する
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- メインコンポーネント ---
 export default function ExpenseScanner() {
   const { data: session, status } = useSession();
@@ -313,6 +361,7 @@ export default function ExpenseScanner() {
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [extensionInstalled, setExtensionInstalled] = useState(false);
+  const [dupModal, setDupModal] = useState<{ duplicates: Receipt[]; imageUrl: string | null; resolve: (ok: boolean) => void } | null>(null);
   const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [endMonth, setEndMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [csvLoading, setCsvLoading] = useState(false);
@@ -331,10 +380,16 @@ export default function ExpenseScanner() {
     return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
   }, []);
 
+  // 重複確認モーダルを表示してユーザーの選択を待つ
+  const confirmDuplicate = useCallback((duplicates: Receipt[], imageUrl: string | null): Promise<boolean> => {
+    return new Promise(resolve => {
+      setDupModal({ duplicates, imageUrl, resolve });
+    });
+  }, []);
+
   // Drive保存（重複チェック含む）
-  const saveToDrive = useCallback(async (newReceipts: Receipt[]): Promise<boolean> => {
+  const saveToDrive = useCallback(async (newReceipts: Receipt[], imageUrl: string | null = null): Promise<boolean> => {
     if (!session?.accessToken) return true;
-    // 月ごとにグループ化
     const byMonth: Record<string, Receipt[]> = {};
     for (const r of newReceipts) {
       const m = r.date?.slice(0, 7) || new Date().toISOString().slice(0, 7);
@@ -348,8 +403,8 @@ export default function ExpenseScanner() {
         const existingReceipts: Receipt[] = existing.receipts || [];
         const dups = findDuplicates(existingReceipts, recs);
         if (dups.length > 0) {
-          const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
-          if (!confirm(`以下のレシートは既に保存されています。追加しますか？\n\n${names}`)) {
+          const ok = await confirmDuplicate(dups, imageUrl);
+          if (!ok) {
             setDriveStatus("idle");
             return false;
           }
@@ -368,7 +423,7 @@ export default function ExpenseScanner() {
       setDriveStatus("error");
       return true;
     }
-  }, [session]);
+  }, [session, confirmDuplicate]);
 
   const processFile = useCallback(async (file: File) => {
     const isImage = file.type.startsWith("image/");
@@ -401,7 +456,7 @@ export default function ExpenseScanner() {
           })),
         }));
         setReceipts(newReceipts);
-        await saveToDrive(newReceipts);
+        await saveToDrive(newReceipts, reader.result as string);
       } catch {
         setError("通信エラーが発生しました");
       } finally {
@@ -596,6 +651,14 @@ export default function ExpenseScanner() {
         <CameraModal
           onCapture={file => { setCameraOpen(false); processFile(file); }}
           onClose={() => setCameraOpen(false)}
+        />
+      )}
+      {dupModal && (
+        <DuplicateModal
+          duplicates={dupModal.duplicates}
+          imageUrl={dupModal.imageUrl}
+          onOk={() => { dupModal.resolve(true); setDupModal(null); }}
+          onCancel={() => { dupModal.resolve(false); setDupModal(null); }}
         />
       )}
       <div className="max-w-4xl mx-auto px-4 py-10">
