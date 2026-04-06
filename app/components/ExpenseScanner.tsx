@@ -526,11 +526,16 @@ export default function ExpenseScanner() {
         const data = await fetch(`/api/drive?month=${month}`).then(r => r.json());
         if (data.receipts) allReceipts.push(...data.receipts);
       }
-      if (allReceipts.length === 0) {
+      // レシートの日付で絞り込み（Driveファイルとレシート日付が異なる場合を考慮）
+      const filtered = allReceipts.filter(r => {
+        const m = r.date?.slice(0, 7);
+        return m && m >= startMonth && m <= endMonth;
+      });
+      if (filtered.length === 0) {
         alert("指定した期間にレシートデータがありません");
         return;
       }
-      const csv = generateCSV(allReceipts.sort((a, b) => a.date.localeCompare(b.date)));
+      const csv = generateCSV(filtered.sort((a, b) => a.date.localeCompare(b.date)));
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
