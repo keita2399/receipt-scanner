@@ -564,7 +564,13 @@ export default function ExpenseScanner() {
       </div>
 
       {/* Googleログイン */}
-      <div className="flex justify-center mb-6">
+      <div className="flex justify-center items-center gap-3 mb-6 flex-wrap">
+        <a
+          href="https://github.com/keita2399/receipt-scanner/releases/download/v1.0.0/receipt-scanner-installer.zip"
+          className="text-xs text-gray-500 hover:text-amber-400 underline cursor-pointer transition-colors"
+        >
+          ⬇ スキャナー連携ツールをダウンロード
+        </a>
         {session ? (
           <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-900 border border-gray-700">
             <span className="text-xs text-gray-400">{session.user?.email}</span>
