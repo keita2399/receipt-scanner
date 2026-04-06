@@ -97,10 +97,10 @@ interface Receipt {
   warnings: string[];
 }
 
-// 日付+店名+合計金額が一致するレシートを重複とみなす
+// 日付+合計金額が一致するレシートを重複とみなす（店舗名はOCRブレがあるため除外）
 function findDuplicates(existing: Receipt[], incoming: Receipt[]): Receipt[] {
   return incoming.filter(r =>
-    existing.some(s => s.date === r.date && s.store_name === r.store_name && s.total === r.total)
+    existing.some(s => s.date === r.date && s.total === r.total)
   );
 }
 
