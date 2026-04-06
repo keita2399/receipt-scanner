@@ -79,9 +79,8 @@ interface ReceiptItem {
   tax_rate: number;
   confidence: number;
   category: string;
-  // 仕分け
   classification: Classification;
-  split_ratio: number; // 業務割合 0-100
+  split_ratio: number;
 }
 
 interface Receipt {
@@ -96,15 +95,6 @@ interface Receipt {
   payment_method: string;
   confidence: number;
   warnings: string[];
-}
-
-const STORAGE_KEY = "expense_scanner_v2";
-
-function loadSaved(): Receipt[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
-}
-function saveSessions(data: Receipt[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data.slice(0, 200)));
 }
 
 // 日付+店名+合計金額が一致するレシートを重複とみなす
@@ -135,7 +125,7 @@ function generateCSV(receipts: Receipt[]): string {
   receipts.forEach(r => {
     r.items.forEach(item => {
       const ba = businessAmount(item);
-      if (ba === 0 && item.classification === "personal") return; // 家庭のみは除外
+      if (ba === 0 && item.classification === "personal") return;
       rows.push([
         r.date, r.store_name, item.name,
         String(item.quantity), String(item.amount), String(ba),
@@ -149,6 +139,17 @@ function generateCSV(receipts: Receipt[]): string {
   return "\uFEFF" + csv;
 }
 
+// 月オプション生成（直近24ヶ月）
+function getMonthOptions(): string[] {
+  const options: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    options.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return options;
+}
+
 // --- ItemRow ---
 function ItemRow({ item, onChange }: {
   item: ReceiptItem;
@@ -157,11 +158,8 @@ function ItemRow({ item, onChange }: {
   const ba = businessAmount(item);
   return (
     <div className={`grid grid-cols-12 gap-1 items-center px-3 py-2 text-xs border-b border-gray-800/50 ${item.confidence < 0.7 ? "bg-red-500/5" : ""}`}>
-      {/* 品名 */}
       <div className="col-span-3 truncate text-gray-200">{item.name}</div>
-      {/* 金額 */}
       <div className="col-span-2 text-right font-mono text-gray-300">¥{item.amount.toLocaleString()}</div>
-      {/* 仕分け選択 */}
       <div className="col-span-3 flex gap-1">
         {(["business", "personal", "split"] as Classification[]).map(c => (
           <button
@@ -179,7 +177,6 @@ function ItemRow({ item, onChange }: {
           </button>
         ))}
       </div>
-      {/* 按分% */}
       <div className="col-span-1 text-center">
         {item.classification === "split" ? (
           <input
@@ -193,7 +190,6 @@ function ItemRow({ item, onChange }: {
           <span className="text-gray-600">—</span>
         )}
       </div>
-      {/* 勘定科目 */}
       <div className="col-span-2">
         <select
           value={item.category}
@@ -203,7 +199,6 @@ function ItemRow({ item, onChange }: {
           {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
-      {/* 業務金額 */}
       <div className={`col-span-1 text-right font-mono font-bold ${ba > 0 ? "text-blue-400" : "text-gray-600"}`}>
         {ba > 0 ? `¥${ba.toLocaleString()}` : "—"}
       </div>
@@ -231,7 +226,6 @@ function ReceiptCard({ receipt, onChange }: {
 
   return (
     <div className="rounded-xl border border-gray-700 overflow-hidden bg-gray-900/50">
-      {/* ヘッダー */}
       <div
         className="flex items-center justify-between px-4 py-3 bg-gray-800/60 cursor-pointer"
         onClick={() => setCollapsed(!collapsed)}
@@ -256,7 +250,6 @@ function ReceiptCard({ receipt, onChange }: {
 
       {!collapsed && (
         <>
-          {/* 一括設定 */}
           <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/30 border-b border-gray-700">
             <span className="text-xs text-gray-500">一括:</span>
             {(["business", "personal", "split"] as Classification[]).map(c => (
@@ -270,7 +263,6 @@ function ReceiptCard({ receipt, onChange }: {
             ))}
           </div>
 
-          {/* ヘッダー行 */}
           <div className="grid grid-cols-12 gap-1 px-3 py-1 text-[10px] text-gray-600 bg-gray-800/30">
             <div className="col-span-3">品名</div>
             <div className="col-span-2 text-right">金額</div>
@@ -280,12 +272,10 @@ function ReceiptCard({ receipt, onChange }: {
             <div className="col-span-1 text-right">業務分</div>
           </div>
 
-          {/* 明細 */}
           {receipt.items.map((item, i) => (
             <ItemRow key={i} item={item} onChange={u => updateItem(i, u)} />
           ))}
 
-          {/* 合計行 */}
           <div className="flex justify-between items-center px-3 py-2 bg-gray-800/30 text-xs">
             <div className="flex gap-4 text-gray-500">
               <span>小計 ¥{receipt.subtotal?.toLocaleString()}</span>
@@ -297,7 +287,6 @@ function ReceiptCard({ receipt, onChange }: {
             </div>
           </div>
 
-          {/* 警告 */}
           {receipt.warnings?.length > 0 && (
             <div className="px-3 py-2 bg-yellow-500/5 border-t border-yellow-500/20">
               {receipt.warnings.map((w, i) => (
@@ -313,74 +302,72 @@ function ReceiptCard({ receipt, onChange }: {
 
 // --- メインコンポーネント ---
 export default function ExpenseScanner() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [saved, setSaved] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [activeTab, setActiveTab] = useState<"scan" | "history">("scan");
   const [driveStatus, setDriveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerStatus, setScannerStatus] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
-  const [extensionInstalled, setExtensionInstalled] = useState<boolean>(false);
+  const [extensionInstalled, setExtensionInstalled] = useState(false);
+  const [startMonth, setStartMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [endMonth, setEndMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [csvLoading, setCsvLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const monthOptions = getMonthOptions();
 
-  // Drive保存
-  const saveToDrive = useCallback(async (receiptsToSave: Receipt[]) => {
-    if (!session?.accessToken) return;
-    const month = new Date().toISOString().slice(0, 7);
-    setDriveStatus("saving");
-    try {
-      // 既存データを取得してマージ
-      const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
-      const existingReceipts: Receipt[] = existing.receipts || [];
-      // IDが被らないようにマージ
-      const merged = [...existingReceipts.filter(e => !receiptsToSave.find(n => n.id === e.id)), ...receiptsToSave];
-      await fetch("/api/drive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, data: { receipts: merged } }),
-      });
-      setDriveStatus("saved");
-      setTimeout(() => setDriveStatus("idle"), 3000);
-    } catch {
-      setDriveStatus("error");
-    }
-  }, [session]);
-
-  // ハイドレーション完了後にのみクライアント固有の処理を実行
+  // Chrome拡張の存在確認
   useEffect(() => {
-    setMounted(true);
-    setSaved(loadSaved());
-  }, []);
-
-  // Chrome拡張の存在確認（マウント後にSCANNER_CHECKを送って応答を待つ）
-  useEffect(() => {
-    if (!mounted) return;
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "SCANNER_EXTENSION_READY") setExtensionInstalled(true);
     };
     window.addEventListener("message", handler);
     window.postMessage({ type: "SCANNER_CHECK" }, "*");
-    const timer = setTimeout(() => setExtensionInstalled((v) => v || false), 1500);
+    const timer = setTimeout(() => {}, 1500);
     return () => { window.removeEventListener("message", handler); clearTimeout(timer); };
-  }, [mounted]);
+  }, []);
 
-  // Drive読み込み（ログイン時）
-  useEffect(() => {
-    if (!session?.accessToken) return;
-    const month = new Date().toISOString().slice(0, 7);
-    fetch(`/api/drive?month=${month}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.receipts?.length > 0) setSaved(data.receipts);
-      })
-      .catch(() => {});
+  // Drive保存（重複チェック含む）
+  const saveToDrive = useCallback(async (newReceipts: Receipt[]): Promise<boolean> => {
+    if (!session?.accessToken) return true;
+    // 月ごとにグループ化
+    const byMonth: Record<string, Receipt[]> = {};
+    for (const r of newReceipts) {
+      const m = r.date?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+      if (!byMonth[m]) byMonth[m] = [];
+      byMonth[m].push(r);
+    }
+    setDriveStatus("saving");
+    try {
+      for (const [month, recs] of Object.entries(byMonth)) {
+        const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
+        const existingReceipts: Receipt[] = existing.receipts || [];
+        const dups = findDuplicates(existingReceipts, recs);
+        if (dups.length > 0) {
+          const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
+          if (!confirm(`以下のレシートは既に保存されています。追加しますか？\n\n${names}`)) {
+            setDriveStatus("idle");
+            return false;
+          }
+        }
+        const merged = [...existingReceipts.filter(e => !recs.find(n => n.id === e.id)), ...recs];
+        await fetch("/api/drive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month, data: { receipts: merged } }),
+        });
+      }
+      setDriveStatus("saved");
+      setTimeout(() => setDriveStatus("idle"), 3000);
+      return true;
+    } catch {
+      setDriveStatus("error");
+      return true;
+    }
   }, [session]);
 
   const processFile = useCallback(async (file: File) => {
@@ -404,7 +391,6 @@ export default function ExpenseScanner() {
         const data = await res.json();
         if (!res.ok) { setError(data.error || "解析に失敗しました"); return; }
 
-        // 各レシートに仕分けデフォルト値とIDを付与
         const newReceipts: Receipt[] = (data.receipts || [data]).map((r: Omit<Receipt, "id" | "items"> & { items: Omit<ReceiptItem, "classification" | "split_ratio">[] }) => ({
           ...r,
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -415,17 +401,7 @@ export default function ExpenseScanner() {
           })),
         }));
         setReceipts(newReceipts);
-        // 重複チェック
-        const existing = loadSaved();
-        const dups = findDuplicates(existing, newReceipts);
-        if (dups.length > 0) {
-          const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
-          if (!confirm(`以下のレシートは既に履歴に存在します。追加しますか？\n\n${names}`)) return;
-        }
-        const next = [...existing, ...newReceipts];
-        saveSessions(next);
-        setSaved(next);
-        if (session?.accessToken) saveToDrive(newReceipts);
+        await saveToDrive(newReceipts);
       } catch {
         setError("通信エラーが発生しました");
       } finally {
@@ -433,7 +409,7 @@ export default function ExpenseScanner() {
       }
     };
     reader.readAsDataURL(file);
-  }, [session, saveToDrive]);
+  }, [saveToDrive]);
 
   // Chrome拡張経由でスキャン
   const scanFromScanner = useCallback(async () => {
@@ -441,7 +417,6 @@ export default function ExpenseScanner() {
     setScannerLoading(true);
 
     try {
-      // 拡張機能の存在確認
       setScannerStatus("スキャナを検索中...");
       const extensionReady = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => resolve(false), 1500);
@@ -461,7 +436,6 @@ export default function ExpenseScanner() {
         return;
       }
 
-      // スキャン実行（host.exeがVercelに直接POSTしてOCR結果を返す）
       setScannerStatus("スキャン中... 原稿をセットしてお待ちください");
       const result = await new Promise<{receipts?: Receipt[]; error?: string}>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("タイムアウト")), 150000);
@@ -478,16 +452,9 @@ export default function ExpenseScanner() {
         window.postMessage({ type: "SCANNER_REQUEST", action: "scan" }, "*");
       });
 
-      if (result.error) {
-        setScannerError(result.error);
-        return;
-      }
-      if (!result.receipts?.length) {
-        setScannerError("レシートを検出できませんでした");
-        return;
-      }
+      if (result.error) { setScannerError(result.error); return; }
+      if (!result.receipts?.length) { setScannerError("レシートを検出できませんでした"); return; }
 
-      // OCR結果を直接セット（processFileを経由しない）
       const newReceipts: Receipt[] = result.receipts.map((r) => ({
         ...r,
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -498,17 +465,7 @@ export default function ExpenseScanner() {
         })),
       }));
       setReceipts(newReceipts);
-      // 重複チェック
-      const existing = loadSaved();
-      const dups = findDuplicates(existing, newReceipts);
-      if (dups.length > 0) {
-        const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
-        if (!confirm(`以下のレシートは既に履歴に存在します。追加しますか？\n\n${names}`)) return;
-      }
-      const next = [...existing, ...newReceipts];
-      saveSessions(next);
-      setSaved(next);
-      if (session?.accessToken) saveToDrive(newReceipts);
+      await saveToDrive(newReceipts);
 
     } catch (e: unknown) {
       setScannerError(e instanceof Error ? e.message : "スキャンに失敗しました");
@@ -516,7 +473,7 @@ export default function ExpenseScanner() {
       setScannerLoading(false);
       setScannerStatus(null);
     }
-  }, [processFile]);
+  }, [saveToDrive]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -529,90 +486,91 @@ export default function ExpenseScanner() {
     const next = [...receipts];
     next[idx] = updated;
     setReceipts(next);
-    // 仕分け変更後1秒でDrive自動保存
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => {
-      const merged = [...saved.filter(s => !next.find(n => n.id === s.id)), ...next];
-      saveSessions(merged);
-      setSaved(merged);
-      if (session?.accessToken) saveToDrive(next);
+    autoSaveTimer.current = setTimeout(async () => {
+      if (!session?.accessToken) return;
+      const month = updated.date?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+      setDriveStatus("saving");
+      try {
+        const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
+        const existingReceipts: Receipt[] = existing.receipts || [];
+        const merged = existingReceipts.map(r => r.id === updated.id ? updated : r);
+        if (!merged.find(r => r.id === updated.id)) merged.push(updated);
+        await fetch("/api/drive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month, data: { receipts: merged } }),
+        });
+        setDriveStatus("saved");
+        setTimeout(() => setDriveStatus("idle"), 3000);
+      } catch {
+        setDriveStatus("error");
+      }
     }, 1000);
   };
 
-  const downloadCSV = (target: Receipt[]) => {
-    const csv = generateCSV(target);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `経費_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const clearHistory = async () => {
-    if (confirm("履歴を全て削除しますか？\n（Drive上のデータも削除されます）")) {
-      localStorage.removeItem(STORAGE_KEY);
-      setSaved([]);
-      // Drive上の全月データも削除
-      if (session?.accessToken) {
-        const months = Array.from(new Set(saved.map(r => r.date?.slice(0, 7)).filter(Boolean)));
-        await Promise.all(months.map(month =>
-          fetch(`/api/drive?month=${month}`, { method: "DELETE" }).catch(() => {})
-        ));
+  const downloadPeriodCSV = async () => {
+    setCsvLoading(true);
+    try {
+      const months: string[] = [];
+      const [sy, sm] = startMonth.split("-").map(Number);
+      const [ey, em] = endMonth.split("-").map(Number);
+      let y = sy, m = sm;
+      while (y < ey || (y === ey && m <= em)) {
+        months.push(`${y}-${String(m).padStart(2, "0")}`);
+        m++;
+        if (m > 12) { m = 1; y++; }
       }
+      const allReceipts: Receipt[] = [];
+      for (const month of months) {
+        const data = await fetch(`/api/drive?month=${month}`).then(r => r.json());
+        if (data.receipts) allReceipts.push(...data.receipts);
+      }
+      if (allReceipts.length === 0) {
+        alert("指定した期間にレシートデータがありません");
+        return;
+      }
+      const csv = generateCSV(allReceipts.sort((a, b) => a.date.localeCompare(b.date)));
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `経費_${startMonth}_${endMonth}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("CSVのダウンロードに失敗しました");
+    } finally {
+      setCsvLoading(false);
     }
   };
 
-  // 月別集計
-  const monthlyTotals = saved.reduce<Record<string, number>>((acc, r) => {
-    const ym = r.date?.slice(0, 7) || "不明";
-    const bt = r.items.reduce((s, i) => s + businessAmount(i), 0);
-    acc[ym] = (acc[ym] || 0) + bt;
-    return acc;
-  }, {});
-
-  return (
-    <>
-    {cameraOpen && (
-      <CameraModal
-        onCapture={file => { setCameraOpen(false); processFile(file); }}
-        onClose={() => setCameraOpen(false)}
-      />
-    )}
-    <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* ヘッダー */}
-      <div className="text-center mb-8">
-        <div className="text-xs text-amber-500 tracking-widest mb-2 font-mono">EXPENSE SCANNER</div>
-        <h1 className="text-3xl font-bold mb-2">
-          経費<span className="text-amber-500">仕分けツール</span>
-        </h1>
-        <p className="text-gray-400 text-sm">レシートをスキャン → 仕事/家庭を仕分け → 確定申告用CSV出力</p>
+  // セッション読み込み中
+  if (status === "loading") {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center">
+        <div className="animate-spin text-5xl mb-4">⚙️</div>
+        <p className="text-gray-400">読み込み中...</p>
       </div>
+    );
+  }
 
-      {/* Googleログイン */}
-      <div className="flex justify-center items-center gap-3 mb-6 flex-wrap">
-        <a
-          href="https://github.com/keita2399/receipt-scanner/releases/download/v1.0.0/receipt-scanner-installer.zip"
-          className="text-xs text-gray-500 hover:text-amber-400 underline cursor-pointer transition-colors"
-        >
-          ⬇ スキャナー連携ツールをダウンロード
-        </a>
-        {session ? (
-          <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-900 border border-gray-700">
-            <span className="text-xs text-gray-400">{session.user?.email}</span>
-            {driveStatus === "error" && <span className="text-xs text-red-400">⚠ Drive保存失敗</span>}
-            <button
-              onClick={() => signOut()}
-              className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer"
-            >
-              ログアウト
-            </button>
-          </div>
-        ) : (
+  // 未ログイン → ログイン画面のみ表示
+  if (!session) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-10">
+        <div className="text-center mb-10">
+          <div className="text-xs text-amber-500 tracking-widest mb-2 font-mono">EXPENSE SCANNER</div>
+          <h1 className="text-3xl font-bold mb-2">
+            経費<span className="text-amber-500">仕分けツール</span>
+          </h1>
+          <p className="text-gray-400 text-sm">レシートをスキャン → 仕事/家庭を仕分け → 確定申告用CSV出力</p>
+        </div>
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-gray-500 text-sm">ご利用にはGoogleアカウントでのログインが必要です</p>
           <button
             onClick={() => signIn("google")}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-white text-gray-800 font-medium text-sm hover:bg-gray-100 transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-white text-gray-800 font-medium text-sm hover:bg-gray-100 transition-colors cursor-pointer"
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -620,202 +578,191 @@ export default function ExpenseScanner() {
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
-            Googleでログイン（Drive自動保存）
+            Googleでログイン
           </button>
-        )}
+        </div>
       </div>
+    );
+  }
 
-      {/* タブ */}
-      <div className="flex border-b border-gray-700 mb-6">
-        {(["scan", "history"] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px cursor-pointer ${
-              activeTab === tab
-                ? "border-amber-500 text-amber-400"
-                : "border-transparent text-gray-500 hover:text-gray-300"
-            }`}
+  return (
+    <>
+      {cameraOpen && (
+        <CameraModal
+          onCapture={file => { setCameraOpen(false); processFile(file); }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
+      <div className="max-w-4xl mx-auto px-4 py-10">
+        {/* ヘッダー */}
+        <div className="text-center mb-6">
+          <div className="text-xs text-amber-500 tracking-widest mb-2 font-mono">EXPENSE SCANNER</div>
+          <h1 className="text-3xl font-bold mb-2">
+            経費<span className="text-amber-500">仕分けツール</span>
+          </h1>
+          <p className="text-gray-400 text-sm">レシートをスキャン → 仕事/家庭を仕分け → 確定申告用CSV出力</p>
+        </div>
+
+        {/* ユーザー情報 + 期間CSVダウンロード */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6 px-4 py-3 rounded-xl bg-gray-900 border border-gray-700">
+          {/* ユーザー */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">{session.user?.email}</span>
+            {driveStatus === "saving" && <span className="text-xs text-amber-400 animate-pulse">⏳ 保存中...</span>}
+            {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
+            {driveStatus === "error" && <span className="text-xs text-red-400">⚠ 保存失敗</span>}
+            <button onClick={() => signOut()} className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">
+              ログアウト
+            </button>
+          </div>
+          {/* 期間指定CSVダウンロード */}
+          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
+            <select
+              value={startMonth}
+              onChange={e => setStartMonth(e.target.value)}
+              className="bg-gray-800 text-gray-300 text-xs rounded px-2 py-1.5 cursor-pointer"
+            >
+              {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <span className="text-gray-500 text-xs">〜</span>
+            <select
+              value={endMonth}
+              onChange={e => setEndMonth(e.target.value)}
+              className="bg-gray-800 text-gray-300 text-xs rounded px-2 py-1.5 cursor-pointer"
+            >
+              {monthOptions.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button
+              onClick={downloadPeriodCSV}
+              disabled={csvLoading}
+              className="px-3 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs hover:bg-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            >
+              {csvLoading ? "取得中..." : "📥 CSVダウンロード"}
+            </button>
+          </div>
+        </div>
+
+        {/* スキャナー連携ツール */}
+        <div className="flex justify-center mb-6">
+          <a
+            href="https://github.com/keita2399/receipt-scanner/releases/download/v1.0.0/receipt-scanner-installer.zip"
+            className="text-xs text-gray-500 hover:text-amber-400 underline cursor-pointer transition-colors"
           >
-            {tab === "scan" ? "📸 スキャン" : `📋 履歴 (${saved.length}件)`}
-          </button>
-        ))}
-      </div>
+            ⬇ スキャナー連携ツールをダウンロード
+          </a>
+        </div>
 
-      {/* スキャンタブ */}
-      {activeTab === "scan" && (
-        <>
-          {/* アップロードエリア */}
-          {receipts.length === 0 && !loading && (
-            <>
-              <div
-                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={scannerLoading ? undefined : handleDrop}
-                onClick={scannerLoading ? undefined : () => fileRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${
-                  scannerLoading
-                    ? "border-gray-800 opacity-40 cursor-not-allowed"
-                    : dragOver ? "border-amber-500 bg-amber-500/10 cursor-pointer" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 cursor-pointer"
+        {/* アップロードエリア */}
+        {receipts.length === 0 && !loading && (
+          <>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={scannerLoading ? undefined : handleDrop}
+              onClick={scannerLoading ? undefined : () => fileRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${
+                scannerLoading
+                  ? "border-gray-800 opacity-40 cursor-not-allowed"
+                  : dragOver ? "border-amber-500 bg-amber-500/10 cursor-pointer" : "border-gray-700 hover:border-gray-500 hover:bg-gray-900/50 cursor-pointer"
+              }`}
+            >
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                disabled={scannerLoading}
+                onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}
+              />
+              <div className="text-4xl mb-4">🗂️</div>
+              <p className="text-gray-300 font-medium mb-1">レシートをドロップ or クリックして選択</p>
+              <p className="text-gray-500 text-xs">PNG / JPEG / PDF（複数レシートOK・複数ページPDFもOK）最大15MB</p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setCameraOpen(true)}
+                disabled={scannerLoading}
+                className="py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                📷 カメラで撮影
+              </button>
+              <button
+                onClick={scanFromScanner}
+                disabled={scannerLoading}
+                title={!extensionInstalled ? "Chrome拡張機能をインストールしてください" : ""}
+                className={`py-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  !extensionInstalled
+                    ? "border-gray-800 text-gray-600 cursor-not-allowed"
+                    : "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 cursor-pointer"
                 }`}
               >
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  className="hidden"
-                  disabled={scannerLoading}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }}
-                />
-                <div className="text-4xl mb-4">🗂️</div>
-                <p className="text-gray-300 font-medium mb-1">レシートをドロップ or クリックして選択</p>
-                <p className="text-gray-500 text-xs">PNG / JPEG / PDF（複数レシートOK・複数ページPDFもOK）最大15MB</p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setCameraOpen(true)}
-                  disabled={scannerLoading}
-                  className="py-3 rounded-xl border border-gray-700 hover:border-amber-500/50 hover:bg-amber-500/5 text-gray-400 hover:text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  📷 カメラで撮影
-                </button>
-                <button
-                  onClick={scanFromScanner}
-                  disabled={scannerLoading}
-                  title={!extensionInstalled ? "Chrome拡張機能をインストールしてください" : ""}
-                  className={`py-3 rounded-xl border text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                    !extensionInstalled
-                      ? "border-gray-800 text-gray-600 cursor-not-allowed"
-                      : "border-gray-700 hover:border-blue-500/50 hover:bg-blue-500/5 text-gray-400 hover:text-blue-400 cursor-pointer"
-                  }`}
-                >
-                  🖨️ {!extensionInstalled ? "拡張機能が必要です" : "スキャナで読み込む"}
-                </button>
-              </div>
-              {scannerStatus && (
-                <p className="mt-2 text-xs text-blue-400 text-center animate-pulse">{scannerStatus}</p>
-              )}
-              {scannerError && (
-                <p className="mt-2 text-xs text-red-400 text-center">{scannerError}</p>
-              )}
-            </>
-          )}
-
-          {/* ローディング */}
-          {(loading || scannerLoading) && (
-            <div className="text-center py-20">
-              <div className="animate-spin text-5xl mb-4">⚙️</div>
-              <p className="text-gray-400">
-                {scannerLoading ? (scannerStatus || "スキャン中...") : "AIがレシートを読み取り中..."}
-              </p>
-              <p className="text-gray-600 text-xs mt-2">
-                {scannerLoading ? "原稿をセットしてお待ちください" : "複数枚の場合は少し時間がかかります"}
-              </p>
-            </div>
-          )}
-
-          {/* エラー */}
-          {error && (
-            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 mb-4">
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
-
-          {/* レシート一覧 */}
-          {receipts.length > 0 && (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-gray-400 text-sm">{receipts.length}件のレシートを検出</span>
-                <div className="flex items-center gap-3">
-                  {driveStatus === "saving" && <span className="text-xs text-amber-400 animate-pulse">⏳ 保存中...</span>}
-                  {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
-                  <button
-                    onClick={() => { setReceipts([]); setError(null); }}
-                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm transition-colors cursor-pointer"
-                  >
-                    📷 次をスキャン
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {receipts.map((r, i) => (
-                  <ReceiptCard key={r.id} receipt={r} onChange={u => updateReceipt(i, u)} />
-                ))}
-              </div>
-
-              {/* 合計サマリー */}
-              <div className="mt-4 p-4 rounded-xl bg-gray-900 border border-gray-700">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400 text-sm">今回の業務経費合計</span>
-                  <span className="text-2xl font-bold text-amber-500 font-mono">
-                    ¥{receipts.reduce((s, r) => s + r.items.reduce((si, i) => si + businessAmount(i), 0), 0).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => downloadCSV(receipts)}
-                className="w-full mt-3 py-3 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 text-sm font-medium transition-colors cursor-pointer"
-              >
-                📥 CSVダウンロード（確定申告用）
+                🖨️ {!extensionInstalled ? "拡張機能が必要です" : "スキャナで読み込む"}
               </button>
-            </>
-          )}
-        </>
-      )}
+            </div>
+            {scannerStatus && (
+              <p className="mt-2 text-xs text-blue-400 text-center animate-pulse">{scannerStatus}</p>
+            )}
+            {scannerError && (
+              <p className="mt-2 text-xs text-red-400 text-center">{scannerError}</p>
+            )}
+          </>
+        )}
 
-      {/* 履歴タブ */}
-      {activeTab === "history" && (
-        <>
-          {/* 月別集計 */}
-          {Object.keys(monthlyTotals).length > 0 && (
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {Object.entries(monthlyTotals).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6).map(([ym, total]) => (
-                <div key={ym} className="p-3 rounded-xl bg-gray-900 border border-gray-700 text-center">
-                  <div className="text-xs text-gray-500 mb-1">{ym}</div>
-                  <div className="text-lg font-bold text-amber-500 font-mono">¥{total.toLocaleString()}</div>
-                </div>
+        {/* ローディング */}
+        {(loading || scannerLoading) && (
+          <div className="text-center py-20">
+            <div className="animate-spin text-5xl mb-4">⚙️</div>
+            <p className="text-gray-400">
+              {scannerLoading ? (scannerStatus || "スキャン中...") : "AIがレシートを読み取り中..."}
+            </p>
+            <p className="text-gray-600 text-xs mt-2">
+              {scannerLoading ? "原稿をセットしてお待ちください" : "複数枚の場合は少し時間がかかります"}
+            </p>
+          </div>
+        )}
+
+        {/* エラー */}
+        {error && (
+          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 mb-4">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* レシート一覧 */}
+        {receipts.length > 0 && (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-gray-400 text-sm">{receipts.length}件のレシートを検出</span>
+              <div className="flex items-center gap-3">
+                {driveStatus === "saving" && <span className="text-xs text-amber-400 animate-pulse">⏳ 保存中...</span>}
+                {driveStatus === "saved" && <span className="text-xs text-green-400">✓ 保存済み</span>}
+                <button
+                  onClick={() => { setReceipts([]); setError(null); }}
+                  className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm transition-colors cursor-pointer"
+                >
+                  📷 次をスキャン
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {receipts.map((r, i) => (
+                <ReceiptCard key={r.id} receipt={r} onChange={u => updateReceipt(i, u)} />
               ))}
             </div>
-          )}
 
-          {saved.length === 0 ? (
-            <div className="text-center py-20 text-gray-600">保存されたレシートはありません</div>
-          ) : (
-            <>
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-gray-400 text-sm">{saved.length}件</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => downloadCSV(saved)}
-                    className="px-3 py-1.5 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 text-xs hover:bg-blue-500/30 cursor-pointer"
-                  >
-                    📥 全件CSV
-                  </button>
-                  <button
-                    onClick={clearHistory}
-                    className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs hover:bg-red-500/20 cursor-pointer"
-                  >
-                    🗑 全削除
-                  </button>
-                </div>
+            {/* 合計サマリー */}
+            <div className="mt-4 p-4 rounded-xl bg-gray-900 border border-gray-700">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 text-sm">今回の業務経費合計</span>
+                <span className="text-2xl font-bold text-amber-500 font-mono">
+                  ¥{receipts.reduce((s, r) => s + r.items.reduce((si, i) => si + businessAmount(i), 0), 0).toLocaleString()}
+                </span>
               </div>
-              <div className="space-y-3">
-                {saved.map((r, i) => (
-                  <ReceiptCard key={r.id || i} receipt={r} onChange={u => {
-                    const next = [...saved];
-                    next[i] = u;
-                    setSaved(next);
-                    saveSessions(next);
-                  }} />
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
-    </div>
+            </div>
+          </>
+        )}
+      </div>
     </>
   );
 }
