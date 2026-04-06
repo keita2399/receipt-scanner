@@ -207,9 +207,10 @@ function ItemRow({ item, onChange }: {
 }
 
 // --- ReceiptCard ---
-function ReceiptCard({ receipt, onChange }: {
+function ReceiptCard({ receipt, onChange, onDelete }: {
   receipt: Receipt;
   onChange: (updated: Receipt) => void;
+  onDelete?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const businessTotal = receipt.items.reduce((s, i) => s + businessAmount(i), 0);
@@ -235,7 +236,7 @@ function ReceiptCard({ receipt, onChange }: {
           <span className="text-gray-500 text-xs">{receipt.date}</span>
           <span className="text-gray-500 text-xs">{receipt.payment_method}</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-xs text-gray-500">合計 / 業務分</div>
             <div className="text-sm font-mono">
@@ -244,6 +245,15 @@ function ReceiptCard({ receipt, onChange }: {
               <span className="text-blue-400 font-bold">¥{businessTotal.toLocaleString()}</span>
             </div>
           </div>
+          {onDelete && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              className="text-gray-600 hover:text-red-400 text-lg leading-none cursor-pointer transition-colors"
+              title="このレシートを削除"
+            >
+              🗑
+            </button>
+          )}
           <span className="text-gray-500 text-lg">{collapsed ? "▶" : "▼"}</span>
         </div>
       </div>
@@ -309,27 +319,34 @@ function DuplicateModal({ duplicates, imageUrl, onOk, onCancel }: {
 }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
+      <div className="w-full max-w-lg bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-700">
           <p className="text-white font-bold">重複レシートを検出</p>
-          <p className="text-gray-400 text-xs mt-1">以下のレシートは既に保存されています。追加しますか？</p>
+          <p className="text-gray-400 text-xs mt-1">以下のレシートは既に保存されています。内容を確認して追加するか判断してください。</p>
         </div>
-        <div className="px-5 py-4 space-y-3 max-h-96 overflow-y-auto">
+        <div className="px-5 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
           {duplicates.map((r, i) => (
             <div key={i} className="flex gap-3 items-start">
               {imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={imageUrl} alt="レシート" className="w-20 h-24 object-cover rounded border border-gray-700 flex-shrink-0" />
+                <img src={imageUrl} alt="レシート" className="w-24 object-cover rounded border border-gray-700 flex-shrink-0" />
               )}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-gray-200 text-sm font-bold">{r.store_name || "不明"}</p>
-                <p className="text-gray-500 text-xs">{r.date}</p>
-                <p className="text-amber-400 text-sm font-mono mt-1">¥{r.total?.toLocaleString()}</p>
-                <div className="mt-1 space-y-0.5">
-                  {r.items.slice(0, 3).map((item, j) => (
-                    <p key={j} className="text-gray-500 text-[10px] truncate">{item.name} ¥{item.amount.toLocaleString()}</p>
+                <p className="text-gray-500 text-xs">{r.date}　合計 <span className="text-amber-400 font-mono">¥{r.total?.toLocaleString()}</span></p>
+                <div className="mt-2 border border-gray-700 rounded overflow-hidden">
+                  <div className="grid grid-cols-12 px-2 py-1 text-[10px] text-gray-600 bg-gray-800">
+                    <div className="col-span-7">品名</div>
+                    <div className="col-span-2 text-right">数量</div>
+                    <div className="col-span-3 text-right">金額</div>
+                  </div>
+                  {r.items.map((item, j) => (
+                    <div key={j} className="grid grid-cols-12 px-2 py-1 text-[10px] border-t border-gray-800">
+                      <div className="col-span-7 text-gray-300 truncate">{item.name}</div>
+                      <div className="col-span-2 text-right text-gray-500">{item.quantity}</div>
+                      <div className="col-span-3 text-right text-gray-300 font-mono">¥{item.amount.toLocaleString()}</div>
+                    </div>
                   ))}
-                  {r.items.length > 3 && <p className="text-gray-600 text-[10px]">他{r.items.length - 3}件...</p>}
                 </div>
               </div>
             </div>
@@ -562,6 +579,26 @@ export default function ExpenseScanner() {
         setDriveStatus("error");
       }
     }, 1000);
+  };
+
+  const deleteReceipt = async (receipt: Receipt) => {
+    if (!session?.accessToken) return;
+    const month = receipt.date?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+    // 表示中レシートから削除
+    setReceipts(prev => prev.filter(r => r.id !== receipt.id));
+    // Driveから削除
+    try {
+      const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
+      const existingReceipts: Receipt[] = existing.receipts || [];
+      const filtered = existingReceipts.filter(r => r.id !== receipt.id);
+      await fetch("/api/drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, data: { receipts: filtered } }),
+      });
+    } catch {
+      // 失敗しても表示からは除去済み
+    }
   };
 
   const downloadPeriodCSV = async () => {
@@ -815,7 +852,7 @@ export default function ExpenseScanner() {
 
             <div className="space-y-3">
               {receipts.map((r, i) => (
-                <ReceiptCard key={r.id} receipt={r} onChange={u => updateReceipt(i, u)} />
+                <ReceiptCard key={r.id} receipt={r} onChange={u => updateReceipt(i, u)} onDelete={() => deleteReceipt(r)} />
               ))}
             </div>
 
