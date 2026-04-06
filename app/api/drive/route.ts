@@ -104,3 +104,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to save to Drive" }, { status: 500 });
   }
 }
+
+// DELETE: 指定月のJSONを削除
+export async function DELETE(req: NextRequest) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token?.accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const month = searchParams.get("month");
+  if (!month) return NextResponse.json({ error: "month required" }, { status: 400 });
+
+  try {
+    const drive = await getDriveClient(token.accessToken as string);
+    const folderId = await getOrCreateFolder(drive, FOLDER_NAME);
+    const fileName = `expense_${month}.json`;
+
+    const res = await drive.files.list({
+      q: `name='${fileName}' and '${folderId}' in parents and trashed=false`,
+      fields: "files(id)",
+    });
+
+    if (res.data.files && res.data.files.length > 0) {
+      await drive.files.delete({ fileId: res.data.files[0].id! });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Drive DELETE error:", error);
+    return NextResponse.json({ error: "Failed to delete from Drive" }, { status: 500 });
+  }
+}

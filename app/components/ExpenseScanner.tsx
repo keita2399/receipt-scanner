@@ -550,10 +550,17 @@ export default function ExpenseScanner() {
     URL.revokeObjectURL(url);
   };
 
-  const clearHistory = () => {
-    if (confirm("履歴を全て削除しますか？")) {
+  const clearHistory = async () => {
+    if (confirm("履歴を全て削除しますか？\n（Drive上のデータも削除されます）")) {
       localStorage.removeItem(STORAGE_KEY);
       setSaved([]);
+      // Drive上の全月データも削除
+      if (session?.accessToken) {
+        const months = Array.from(new Set(saved.map(r => r.date?.slice(0, 7)).filter(Boolean)));
+        await Promise.all(months.map(month =>
+          fetch(`/api/drive?month=${month}`, { method: "DELETE" }).catch(() => {})
+        ));
+      }
     }
   };
 
