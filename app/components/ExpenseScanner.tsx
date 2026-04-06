@@ -107,6 +107,13 @@ function saveSessions(data: Receipt[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data.slice(0, 200)));
 }
 
+// 日付+店名+合計金額が一致するレシートを重複とみなす
+function findDuplicates(existing: Receipt[], incoming: Receipt[]): Receipt[] {
+  return incoming.filter(r =>
+    existing.some(s => s.date === r.date && s.store_name === r.store_name && s.total === r.total)
+  );
+}
+
 // 勘定科目リスト
 const CATEGORIES = [
   "会議費", "交際費", "消耗品費", "新聞図書費", "旅費交通費",
@@ -408,8 +415,14 @@ export default function ExpenseScanner() {
           })),
         }));
         setReceipts(newReceipts);
-        // スキャン完了と同時に自動保存
-        const next = [...loadSaved(), ...newReceipts];
+        // 重複チェック
+        const existing = loadSaved();
+        const dups = findDuplicates(existing, newReceipts);
+        if (dups.length > 0) {
+          const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
+          if (!confirm(`以下のレシートは既に履歴に存在します。追加しますか？\n\n${names}`)) return;
+        }
+        const next = [...existing, ...newReceipts];
         saveSessions(next);
         setSaved(next);
         if (session?.accessToken) saveToDrive(newReceipts);
@@ -485,7 +498,14 @@ export default function ExpenseScanner() {
         })),
       }));
       setReceipts(newReceipts);
-      const next = [...loadSaved(), ...newReceipts];
+      // 重複チェック
+      const existing = loadSaved();
+      const dups = findDuplicates(existing, newReceipts);
+      if (dups.length > 0) {
+        const names = dups.map(r => `${r.date} ${r.store_name} ¥${r.total.toLocaleString()}`).join("\n");
+        if (!confirm(`以下のレシートは既に履歴に存在します。追加しますか？\n\n${names}`)) return;
+      }
+      const next = [...existing, ...newReceipts];
       saveSessions(next);
       setSaved(next);
       if (session?.accessToken) saveToDrive(newReceipts);
