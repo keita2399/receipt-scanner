@@ -421,11 +421,12 @@ export default function ExpenseScanner() {
         const existingReceipts: Receipt[] = existing.receipts || [];
         const dups = findDuplicates(existingReceipts, recs);
         const newRecs = recs.filter(r => !dups.find(d => d.date === r.date && d.total === r.total));
-        let recsToSave = newRecs;
+        let recsToSave = [...newRecs];
         if (dups.length > 0) {
           const ok = await confirmDuplicate(dups, imageUrl);
           if (ok) recsToSave = [...newRecs, ...recs.filter(r => dups.find(d => d.date === r.date && d.total === r.total))];
         }
+        if (recsToSave.length === 0) continue;
         const merged = [...existingReceipts.filter(e => !recsToSave.find(n => n.id === e.id)), ...recsToSave];
         await fetch("/api/drive", {
           method: "POST",
