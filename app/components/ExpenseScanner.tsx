@@ -357,7 +357,7 @@ function DuplicateModal({ duplicates, imageUrl, onOk, onCancel }: {
             キャンセル
           </button>
           <button onClick={onOk} className="flex-1 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm cursor-pointer">
-            追加する
+            重複も追加する
           </button>
         </div>
       </div>
