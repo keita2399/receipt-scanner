@@ -419,7 +419,10 @@ export default function ExpenseScanner() {
       for (const [month, recs] of Object.entries(byMonth)) {
         const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
         const existingReceipts: Receipt[] = existing.receipts || [];
+        console.log("既存:", existingReceipts.map(r => ({ date: r.date, total: r.total })));
+        console.log("今回:", recs.map(r => ({ date: r.date, total: r.total })));
         const dups = findDuplicates(existingReceipts, recs);
+        console.log("重複:", dups.length);
         const newRecs = recs.filter(r => !dups.find(d => d.date === r.date && d.total === r.total));
         let recsToSave = newRecs;
         if (dups.length > 0) {
