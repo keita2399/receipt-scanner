@@ -419,14 +419,13 @@ export default function ExpenseScanner() {
         const existing = await fetch(`/api/drive?month=${month}`).then(r => r.json());
         const existingReceipts: Receipt[] = existing.receipts || [];
         const dups = findDuplicates(existingReceipts, recs);
+        const newRecs = recs.filter(r => !dups.find(d => d.date === r.date && d.total === r.total));
+        let recsToSave = newRecs;
         if (dups.length > 0) {
           const ok = await confirmDuplicate(dups, imageUrl);
-          if (!ok) {
-            setDriveStatus("idle");
-            return false;
-          }
+          if (ok) recsToSave = [...newRecs, ...recs.filter(r => dups.find(d => d.date === r.date && d.total === r.total))];
         }
-        const merged = [...existingReceipts.filter(e => !recs.find(n => n.id === e.id)), ...recs];
+        const merged = [...existingReceipts.filter(e => !recsToSave.find(n => n.id === e.id)), ...recsToSave];
         await fetch("/api/drive", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
