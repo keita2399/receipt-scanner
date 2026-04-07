@@ -112,9 +112,10 @@ const CATEGORIES = [
 
 // 業務金額を計算
 function businessAmount(item: ReceiptItem): number {
-  if (item.classification === "business") return item.amount;
+  const amount = typeof item.amount === "number" && !isNaN(item.amount) ? item.amount : 0;
+  if (item.classification === "business") return amount;
   if (item.classification === "personal") return 0;
-  return Math.round(item.amount * item.split_ratio / 100);
+  return Math.round(amount * item.split_ratio / 100);
 }
 
 // CSV生成
@@ -159,7 +160,7 @@ function ItemRow({ item, onChange }: {
   return (
     <div className={`grid grid-cols-12 gap-1 items-center px-3 py-2 text-xs border-b border-gray-800/50 ${item.confidence < 0.7 ? "bg-red-500/5" : ""}`}>
       <div className="col-span-3 truncate text-gray-200">{item.name}</div>
-      <div className="col-span-2 text-right font-mono text-gray-300">¥{item.amount.toLocaleString()}</div>
+      <div className="col-span-2 text-right font-mono text-gray-300">{typeof item.amount === "number" && !isNaN(item.amount) ? `¥${item.amount.toLocaleString()}` : <span className="text-gray-600">—</span>}</div>
       <div className="col-span-3 flex gap-1">
         {(["business", "personal", "split"] as Classification[]).map(c => (
           <button
